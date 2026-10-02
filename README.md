@@ -20,6 +20,8 @@ Install third party dependencies:
 git clone --depth 1 --branch v2.8.3 https://github.com/Dao-AILab/flash-attention.git third_party/flash-attention
 
 git -C third_party/flash-attention submodule update --init --depth 1 csrc/cutlass
+
+./third_party/fetch_llvm_headers.sh
 ```
 
 ### Build from Source
