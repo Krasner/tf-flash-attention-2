@@ -1,0 +1,5 @@
+*.o
+*.so*
+*.log
+__pycache__/
+asset/
