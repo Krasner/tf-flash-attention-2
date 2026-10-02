@@ -3,3 +3,5 @@
 *.log
 __pycache__/
 asset/
+sdpa/tf_cuda_shim/
+third_party/llvm-headers/

@@ -46,7 +46,21 @@ XLA_KERNEL_SOURCE="${OP_NAME}_xla_kernel.cc"
 XLA_KERNEL_OUT="${OP_NAME}_xla_kernel.o"
 XLA_TARGET_OUT="${OP_NAME}_xla_target.o"
 
-TF_CFLAGS="-I$tfpath/include -D_GLIBCXX_USE_CXX11_ABI=1 --std=c++17 -DEIGEN_MAX_ALIGN_BYTES=64"
+# TF headers include CUDA as "third_party/gpus/cuda/include/...", which the pip
+# wheel doesn't ship. Point that path at the local CUDA toolkit.
+TF_CUDA_SHIM="$(pwd)/tf_cuda_shim"
+mkdir -p "$TF_CUDA_SHIM/third_party/gpus/cuda"
+ln -sfn "$cudapath/include" "$TF_CUDA_SHIM/third_party/gpus/cuda/include"
+
+# XLA headers (needed by the XLA kernel) also include LLVM, which the wheel doesn't ship either.
+LLVM_INCLUDE="$(cd .. && pwd)/third_party/llvm-headers/include"
+if [ ! -f "$LLVM_INCLUDE/llvm/Config/llvm-config.h" ]; then
+    echo "LLVM headers not found at $LLVM_INCLUDE. Run:"
+    echo "  ./third_party/fetch_llvm_headers.sh"
+    exit 1
+fi
+
+TF_CFLAGS="-I$tfpath/include -I$TF_CUDA_SHIM -I$LLVM_INCLUDE -D_GLIBCXX_USE_CXX11_ABI=1 --std=c++17 -DEIGEN_MAX_ALIGN_BYTES=64"
 TF_LFLAGS="-L$tfpath -l:libtensorflow_framework.so.2 -l:libtensorflow_cc.so.2"
 
 cuda_lib_path="$cudapath/lib64"
@@ -72,7 +86,11 @@ $cudapath/bin/nvcc -c ${GPU_BWD_SOURCE} -o ${GPU_BWD_OUT} \
 
 /usr/bin/g++ -c $XLA_TARGET_SOURCE -o $XLA_TARGET_OUT -fPIC $TF_CFLAGS -D GOOGLE_CUDA=1 -DEIGEN_USE_GPU -O2
 
+# -mavx2 only exists on x86.
+HOST_FLAGS=""
+[[ "$(uname -m)" == "x86_64" ]] && HOST_FLAGS="-mavx2"
+
 /usr/bin/g++ -std=c++17 -shared -o $soname $OP_OUT $CPU_OUT $GPU_FWD_OUT $GPU_BWD_OUT $XLA_KERNEL_OUT $XLA_TARGET_OUT $FA2_OBJS \
-    -fPIC ${TF_LFLAGS} ${CUDA_LINK} -mavx2 -O2 \
+    -fPIC ${TF_LFLAGS} ${CUDA_LINK} ${HOST_FLAGS} -O2 \
     -march=native -mtune=native \
      -D GOOGLE_CUDA=1 

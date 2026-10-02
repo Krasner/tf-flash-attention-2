@@ -1,10 +1,25 @@
 #pragma once
 #if GOOGLE_CUDA
 
-#include "tensorflow/core/util/gpu_kernel_helper.h"
+#include "tensorflow/core/platform/errors.h"
+#include <cuda_runtime.h>
 
 namespace tensorflow
 {
+
+// Stand-in for TF's GpuLaunchKernel: tensorflow/core/util/gpu_kernel_helper.h
+// can't be used with the pip wheel since TF 2.19 (it pulls in stream_executor
+// headers that need LLVM, which the wheel doesn't ship).
+template <typename... Ts, typename... Args>
+Status GpuLaunchKernel(void (*kernel)(Ts...), dim3 grid, dim3 block, size_t smem, cudaStream_t stream,
+                       Args... args)
+{
+    kernel<<<grid, block, smem, stream>>>(args...);
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess)
+        return errors::Internal("CUDA kernel launch failed: ", cudaGetErrorString(err));
+    return absl::OkStatus();
+}
 
 inline constexpr float EPSF = 1e-6f;
 inline constexpr float ZEROF = 0.0f;
