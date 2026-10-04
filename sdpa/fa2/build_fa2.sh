@@ -23,7 +23,7 @@ fi
 mkdir -p "$OBJ_DIR"
 
 # Must match the head dims dispatched in fa2_api.cu.
-HEAD_DIMS="32 64 96 128"
+HEAD_DIMS="32 64 96 128 192 256"
 JOBS="${FA2_JOBS:-$(nproc)}"
 
 if [ -z "$FA2_ARCHS" ]; then

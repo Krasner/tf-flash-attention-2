@@ -368,6 +368,16 @@ template <typename T> struct FlashAttnGradFunctor<GPUDevice, T>
         return 0;
     }
 
+    static Status CheckFeatureSize(int D_qk, int D_v, float dropout_rate)
+    {
+        if (std::max(D_qk, D_v) <= 128) return OkStatus();
+        if constexpr (kIsFa2Type)
+        {
+            if (sdpa_fa2::BackwardSupported(D_qk, D_v, dropout_rate)) return OkStatus();
+        }
+        return FeatureSizeError(D_qk, D_v);
+    }
+
     void operator()(const GPUDevice &d, typename TTypes<T, 3>::ConstTensor Q,
                     typename TTypes<T, 3>::ConstTensor K, typename TTypes<T, 3>::ConstTensor V,
                     typename TTypes<T, 3>::ConstTensor Out,
@@ -385,7 +395,7 @@ template <typename T> struct FlashAttnGradFunctor<GPUDevice, T>
 
         if constexpr (kIsFa2Type)
         {
-            if (sdpa_fa2::Supported(D_qk, D_v))
+            if (sdpa_fa2::BackwardSupported(D_qk, D_v, dropout_rate))
             {
                 const cudaError_t err = sdpa_fa2::Backward(
                     d.stream(), kIsBf16, Q.data(), K.data(), V.data(), Out.data(), Stats.data(),
@@ -423,6 +433,10 @@ template <typename T> struct FlashAttnGradFunctor<GPUDevice, T>
         {
             LaunchKernel<128>(d, Q, K, V, Out, Stats, dO, dQ, dK, dV, B, S_q, S_kv, D_qk, D_v,
                               causal_mask, dropout_rate, scale, rng);
+        }
+        else
+        {
+            LOG(FATAL) << FeatureSizeError(D_qk, D_v);
         }
     }
 

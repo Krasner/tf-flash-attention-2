@@ -63,10 +63,7 @@ public:
                         errors::InvalidArgument("seq size Q != K while causal_mask = True"));
         }
 
-        OP_REQUIRES(
-            context, std::max(D_qk, D_v) <= 128,
-            errors::InvalidArgument("CUDA kernel does not support feature size over 128. Set "
-                                    "smaller feature size or use more heads"));
+        OP_REQUIRES_OK(context, functor::FlashAttnFunctor<Device, T>::CheckFeatureSize(D_qk, D_v));
 
         Tensor *output_tensor = nullptr;
         OP_REQUIRES_OK(context,
@@ -162,10 +159,8 @@ public:
                         errors::InvalidArgument("seq size Q != K while causal_mask = True"));
         }
 
-        OP_REQUIRES(
-            context, std::max(D_qk, D_v) <= 128,
-            errors::InvalidArgument("CUDA kernel does not support feature size over 128. Set "
-                                    "smaller feature size or use more heads"));
+        OP_REQUIRES_OK(context, functor::FlashAttnGradFunctor<Device, T>::CheckFeatureSize(
+                                    D_qk, D_v, dropout_rate_));
 
         Tensor *dq_tensor = nullptr;
         Tensor *dk_tensor = nullptr;
@@ -224,6 +219,11 @@ float get_random_float_cpu(uint64 seed, uint64 offset, int64 b, int i, int j, in
 
 template <typename T> struct FlashAttnFunctor<CPUDevice, T>
 {
+    static Status CheckFeatureSize(int D_qk, int D_v)
+    {
+        return std::max(D_qk, D_v) <= 128 ? OkStatus() : FeatureSizeError(D_qk, D_v);
+    }
+
     void operator()(const CPUDevice &d, typename TTypes<T, 3>::ConstTensor Q,
                     typename TTypes<T, 3>::ConstTensor K, typename TTypes<T, 3>::ConstTensor V,
                     typename TTypes<T, 3>::Tensor Out, typename TTypes<float, 2>::Tensor stats,
@@ -335,6 +335,11 @@ template <typename T> struct FlashAttnFunctor<CPUDevice, T>
 template <typename T> struct FlashAttnGradFunctor<CPUDevice, T>
 {
     static int64 WorkspaceBytes(int B, int S_q, int S_kv, int D_qk, int D_v) { return 0; }
+
+    static Status CheckFeatureSize(int D_qk, int D_v, float dropout_rate)
+    {
+        return std::max(D_qk, D_v) <= 128 ? OkStatus() : FeatureSizeError(D_qk, D_v);
+    }
 
     void operator()(const CPUDevice &d, typename TTypes<T, 3>::ConstTensor Q,
                     typename TTypes<T, 3>::ConstTensor K, typename TTypes<T, 3>::ConstTensor V,

@@ -11,6 +11,8 @@ namespace sdpa_fa2
 {
 bool Supported(int, int) { return false; }
 
+bool BackwardSupported(int, int, float) { return false; }
+
 bool ShapeSupported(int, int) { return false; }
 
 cudaError_t Forward(cudaStream_t, bool, const void *, const void *, const void *, void *, float *,
@@ -157,7 +159,9 @@ template <typename Elem> void DispatchFwd(Flash_fwd_params &p, cudaStream_t stre
     if (p.d <= 32) RunFwd<Elem, 32>(p, stream);
     else if (p.d <= 64) RunFwd<Elem, 64>(p, stream);
     else if (p.d <= 96) RunFwd<Elem, 96>(p, stream);
-    else RunFwd<Elem, 128>(p, stream);
+    else if (p.d <= 128) RunFwd<Elem, 128>(p, stream);
+    else if (p.d <= 192) RunFwd<Elem, 192>(p, stream);
+    else RunFwd<Elem, 256>(p, stream);
 }
 
 template <typename Elem> void DispatchBwd(Flash_bwd_params &p, cudaStream_t stream)
@@ -165,7 +169,9 @@ template <typename Elem> void DispatchBwd(Flash_bwd_params &p, cudaStream_t stre
     if (p.d <= 32) RunBwd<Elem, 32>(p, stream);
     else if (p.d <= 64) RunBwd<Elem, 64>(p, stream);
     else if (p.d <= 96) RunBwd<Elem, 96>(p, stream);
-    else RunBwd<Elem, 128>(p, stream);
+    else if (p.d <= 128) RunBwd<Elem, 128>(p, stream);
+    else if (p.d <= 192) RunBwd<Elem, 192>(p, stream);
+    else RunBwd<Elem, 256>(p, stream);
 }
 
 cudaError_t TakeError()
@@ -180,10 +186,26 @@ cudaError_t TakeError()
 
 bool ShapeSupported(int d_qk, int d_v)
 {
-    return d_qk == d_v && d_qk > 0 && d_qk % 8 == 0 && d_qk <= 128;
+    return d_qk == d_v && d_qk > 0 && d_qk % 8 == 0 && d_qk <= 256;
 }
 
 bool Supported(int d_qk, int d_v) { return ShapeSupported(d_qk, d_v) && DeviceHasKernelImage(); }
+
+bool BackwardSupported(int d_qk, int d_v, float dropout)
+{
+    if (!Supported(d_qk, d_v)) return false;
+    if (d_qk <= 192 || dropout <= 0.f) return true;
+    // Mirrors the smem tiers in run_mha_bwd_hdim256 (flash_bwd_launch_template.h).
+    int dev = 0, max_smem = 0;
+    if (cudaGetDevice(&dev) != cudaSuccess ||
+        cudaDeviceGetAttribute(&max_smem, cudaDevAttrMaxSharedMemoryPerBlockOptin, dev) !=
+            cudaSuccess)
+    {
+        cudaGetLastError();
+        return false;
+    }
+    return max_smem >= 144 * 1024;
+}
 
 cudaError_t Forward(cudaStream_t stream, bool bf16, const void *q, const void *k, const void *v, void *out,
                     float *lse, int B, int S_q, int S_kv, int D, float scale, float dropout,

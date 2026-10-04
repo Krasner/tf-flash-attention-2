@@ -182,6 +182,16 @@ template <typename T> struct FlashAttnFunctor<GPUDevice, T>
     static constexpr bool kIsBf16 = std::is_same_v<T, Eigen::bfloat16>;
     static constexpr bool kIsFa2Type = kIsBf16 || std::is_same_v<T, Eigen::half>;
 
+    static Status CheckFeatureSize(int D_qk, int D_v)
+    {
+        if (std::max(D_qk, D_v) <= 128) return OkStatus();
+        if constexpr (kIsFa2Type)
+        {
+            if (sdpa_fa2::Supported(D_qk, D_v)) return OkStatus();
+        }
+        return FeatureSizeError(D_qk, D_v);
+    }
+
     void operator()(const GPUDevice &d, typename TTypes<T, 3>::ConstTensor Q,
                     typename TTypes<T, 3>::ConstTensor K, typename TTypes<T, 3>::ConstTensor V,
                     typename TTypes<T, 3>::Tensor Out, typename TTypes<float, 2>::Tensor Stats,
@@ -235,7 +245,7 @@ template <typename T> struct FlashAttnFunctor<GPUDevice, T>
         }
         else
         {
-            printf("error: max(D_qk, D_v) should less or equal than 128\n");
+            LOG(FATAL) << FeatureSizeError(D_qk, D_v);
         }
     }
 
