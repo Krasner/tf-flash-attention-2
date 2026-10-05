@@ -19,8 +19,12 @@ namespace sdpa_fa2
 
 // True if the current device and shapes can use FlashAttention-2: the library
 // was built with FA2 code for this GPU (sm80+), D_qk == D_v, and the head dim
-// is a multiple of 8 and <= 128.
+// is a multiple of 8 and <= 256.
 bool Supported(int d_qk, int d_v);
+
+// Supported, plus the backward-only restriction: FA2's hdim 256 backward kernel
+// needs >= 144 KB of shared memory per block for dropout, which sm86/sm89 lack.
+bool BackwardSupported(int d_qk, int d_v, float dropout);
 
 // The shape part of Supported: true if FA2 could handle these head dims on a
 // suitable GPU. Doesn't touch the device, so it's safe at XLA compile time.

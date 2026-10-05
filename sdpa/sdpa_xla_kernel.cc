@@ -5,6 +5,7 @@
 #include "tensorflow/compiler/xla/hlo/builder/xla_builder.h"  // path varies by TF version
 #include "tensorflow/compiler/xla/shape_util.h"
 
+#include "fa2/fa2_api.h"
 #include "sdpa.h"
 #include "sdpa_xla_desc.h"
 
@@ -31,9 +32,11 @@ static Status ToFlashAttnDtype(DataType dt, int32_t* out) {
   }
 }
 
-// Same restrictions as the TF kernels in sdpa_cpu.cc.
+// Same restrictions as the TF kernels in sdpa_cpu.cc, except that feature sizes
+// over 128 are checked by shape only (no device query at compile time): if the
+// device turns out not to support them, the custom call fails at run time.
 static Status ValidateQKV(const TensorShape& q, const TensorShape& k, const TensorShape& v,
-                          bool causal) {
+                          bool causal, DataType dt) {
   if (q.dims() != 3 || k.dims() != 3 || v.dims() != 3) {
     return errors::InvalidArgument("Q/K/V must be rank 3");
   }
@@ -49,10 +52,10 @@ static Status ValidateQKV(const TensorShape& q, const TensorShape& k, const Tens
   if (causal && q.dim_size(1) != k.dim_size(1)) {
     return errors::InvalidArgument("seq size Q != K while causal_mask = True");
   }
-  if (std::max(q.dim_size(2), v.dim_size(2)) > 128) {
-    return errors::InvalidArgument(
-        "CUDA kernel does not support feature size over 128. Set smaller feature size or use "
-        "more heads");
+  const int64_t d_qk = q.dim_size(2), d_v = v.dim_size(2);
+  const bool fa2_type = dt == DT_HALF || dt == DT_BFLOAT16;
+  if (std::max(d_qk, d_v) > 128 && !(fa2_type && sdpa_fa2::ShapeSupported(d_qk, d_v))) {
+    return functor::FeatureSizeError(d_qk, d_v);
   }
   return OkStatus();
 }
@@ -89,7 +92,7 @@ class FlashAttnXlaOp : public XlaOpKernel {
     const TensorShape q = ctx->InputShape(0);
     const TensorShape k = ctx->InputShape(1);
     const TensorShape v = ctx->InputShape(2);
-    OP_REQUIRES_OK(ctx, ValidateQKV(q, k, v, causal_));
+    OP_REQUIRES_OK(ctx, ValidateQKV(q, k, v, causal_, ctx->input_type(0)));
     OP_REQUIRES_OK(ctx, ValidateRngInputs(ctx));
     OP_REQUIRES_OK(ctx, ToFlashAttnDtype(ctx->input_type(0), &d.dtype));
     xla::PrimitiveType ptype;
@@ -142,7 +145,7 @@ class FlashAttnGradXlaOp : public XlaOpKernel {
     const TensorShape q = ctx->InputShape(0);
     const TensorShape k = ctx->InputShape(1);
     const TensorShape v = ctx->InputShape(2);
-    OP_REQUIRES_OK(ctx, ValidateQKV(q, k, v, causal_));
+    OP_REQUIRES_OK(ctx, ValidateQKV(q, k, v, causal_, ctx->input_type(0)));
     OP_REQUIRES_OK(ctx, ValidateRngInputs(ctx));
     OP_REQUIRES_OK(ctx, ToFlashAttnDtype(ctx->input_type(0), &d.dtype));
     xla::PrimitiveType ptype;

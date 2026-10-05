@@ -106,7 +106,7 @@ if __name__ == "__main__":
     tf.random.set_seed(0)
     all_ok = True
     for dtype in (tf.float16, tf.bfloat16):
-        for D in (8, 32, 40, 64, 96, 128):
+        for D in (8, 32, 40, 64, 96, 128, 160, 192, 256):
             for causal in (False, True):
                 all_ok &= check(4, 257, 257, D, causal, dtype=dtype)
         all_ok &= check(3, 100, 333, 64, False, dtype=dtype)
@@ -114,10 +114,23 @@ if __name__ == "__main__":
         for causal in (False, True):
             all_ok &= check(4, 64, 64, 64, causal, dropout=0.2, dtype=dtype)
             all_ok &= check(4, 128, 128, 128, causal, dropout=0.1, dtype=dtype)
+            all_ok &= check(2, 256, 256, 256, causal, dropout=0.1, dtype=dtype)
     # Shapes/dtypes FA2 doesn't handle use the op's own kernels.
     all_ok &= check(2, 100, 120, 64, False, dtype=tf.bfloat16, D_v=32)
     all_ok &= check(2, 100, 120, 64, False, dtype=tf.float32)
     all_ok &= check(2, 100, 100, 32, True, dtype=tf.float32, D_v=16)
+    # Feature sizes over 128 are rejected cleanly where FA2 can't run them.
+    for dtype, D, D_v in ((tf.float32, 256, 256), (tf.float16, 256, 128), (tf.float16, 264, 264)):
+        q = tf.zeros((1, 16, D), dtype)
+        v = tf.zeros((1, 16, D_v), dtype)
+        for name, fn in (("eager", flash), ("XLA", tf.function(flash, jit_compile=True))):
+            try:
+                fn(q, q, v, 1.0)
+                ok = False
+            except (tf.errors.InvalidArgumentError, ValueError):
+                ok = True
+            print(("OK  " if ok else "FAIL"), f"{dtype.name} D_qk={D} D_v={D_v} {name} rejected")
+            all_ok &= ok
     print("ALL OK" if all_ok else "SOME CHECKS FAILED")
 
     B, S_q, S_kv, D = 16, 1024, 4096, 128
