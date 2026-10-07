@@ -27,6 +27,9 @@ git -C third_party/flash-attention submodule update --init --depth 1 csrc/cutlas
 ./third_party/fetch_llvm_headers.sh
 ```
 
+Make sure to symlink your cuda location to `/usr/local/cuda` if not there already
+`ln -s /path/to/cuda /usr/local/cuda`
+
 ### Build from Source
 ```
 export TF_PATH=/path/to/python/site-packages/tensorflow
